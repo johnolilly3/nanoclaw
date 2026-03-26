@@ -269,6 +269,12 @@ The task will run in that group's context with access to their files and memory.
 
 ---
 
+## Email Notifications
+
+When you receive an email notification (messages starting with `[Email from ...`), inform the user about it but do NOT reply to the email unless specifically asked. You have Gmail tools available — use them only when the user explicitly asks you to reply, forward, or take action on an email.
+
+---
+
 ## Task Scripts
 
 To check or monitor something on a recurring basis, use `schedule_task` — not a bash loop. This way the check survives container restarts and doesn't block other messages. If the user only needs to know when a condition changes, add a `script` to avoid unnecessary wake-ups — the script runs first, and you only wake up when there's something to act on.
