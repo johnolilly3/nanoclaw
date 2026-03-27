@@ -1,0 +1,105 @@
+#!/bin/bash
+# Google Calendar CLI tool for NanoClaw agents
+# Usage: gcal list [days] | gcal today | gcal get <id> | gcal create '<json>' | gcal delete <id>
+
+CREDS_DIR="$HOME/.gmail-mcp"
+TOKEN_FILE="$CREDS_DIR/mcp-google-calendar-token.json"
+OAUTH_FILE="$CREDS_DIR/gcp-oauth.keys.json"
+
+refresh_token() {
+  local client_id=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$OAUTH_FILE','utf8')).installed.client_id)")
+  local client_secret=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$OAUTH_FILE','utf8')).installed.client_secret)")
+  local refresh=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$TOKEN_FILE','utf8')).refresh_token)")
+  curl -s -X POST https://oauth2.googleapis.com/token \
+    -d "client_id=$client_id&client_secret=$client_secret&refresh_token=$refresh&grant_type=refresh_token" \
+    | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(d.access_token)"
+}
+
+ACCESS_TOKEN=$(refresh_token)
+
+case "${1:-list}" in
+  list)
+    DAYS="${2:-7}"
+    NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    END=$(date -u -d "+${DAYS} days" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+${DAYS}d +%Y-%m-%dT%H:%M:%SZ)
+    curl -s "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=$NOW&timeMax=$END&singleEvents=true&orderBy=startTime&maxResults=20" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        if(!d.items||d.items.length===0){console.log('No events found.');process.exit(0)}
+        d.items.forEach(e=>{
+          const start=e.start.dateTime||e.start.date;
+          const end=e.end.dateTime||e.end.date;
+          console.log('---');
+          console.log('Event:',e.summary||'(no title)');
+          console.log('When:',start,'to',end);
+          if(e.location)console.log('Where:',e.location);
+          if(e.description)console.log('Description:',e.description.substring(0,200));
+          if(e.attendees)console.log('Attendees:',e.attendees.map(a=>a.email).join(', '));
+          console.log('ID:',e.id);
+        });
+        console.log('---');
+        console.log('Total:',d.items.length,'events');
+      "
+    ;;
+  today)
+    NOW=$(date -u +%Y-%m-%dT00:00:00Z)
+    END=$(date -u -d "+1 day" +%Y-%m-%dT00:00:00Z 2>/dev/null || date -u -v+1d +%Y-%m-%dT00:00:00Z)
+    curl -s "https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=$NOW&timeMax=$END&singleEvents=true&orderBy=startTime" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        if(!d.items||d.items.length===0){console.log('No events today.');process.exit(0)}
+        d.items.forEach(e=>{
+          const start=e.start.dateTime||e.start.date;
+          const end=e.end.dateTime||e.end.date;
+          console.log('---');
+          console.log('Event:',e.summary||'(no title)');
+          console.log('When:',start,'to',end);
+          if(e.location)console.log('Where:',e.location);
+          if(e.attendees)console.log('Attendees:',e.attendees.map(a=>a.email).join(', '));
+          console.log('ID:',e.id);
+        });
+        console.log('---');
+        console.log('Total:',d.items.length,'events today');
+      "
+    ;;
+  get)
+    curl -s "https://www.googleapis.com/calendar/v3/calendars/primary/events/$2" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const e=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(e.error){console.error('Error:',e.error.message);process.exit(1)}
+        console.log(JSON.stringify(e,null,2));
+      "
+    ;;
+  create)
+    curl -s -X POST "https://www.googleapis.com/calendar/v3/calendars/primary/events" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "$2" | node -e "
+        const e=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(e.error){console.error('Error:',e.error.message);process.exit(1)}
+        console.log('Created event:',e.summary);
+        console.log('ID:',e.id);
+        console.log('Link:',e.htmlLink);
+      "
+    ;;
+  delete)
+    curl -s -X DELETE "https://www.googleapis.com/calendar/v3/calendars/primary/events/$2" \
+      -H "Authorization: Bearer $ACCESS_TOKEN"
+    echo "Event deleted: $2"
+    ;;
+  *)
+    echo "Usage: gcal [list [days] | today | get <id> | create '<json>' | delete <id>]"
+    echo ""
+    echo "Commands:"
+    echo "  list [days]     List events for the next N days (default: 7)"
+    echo "  today           List today's events"
+    echo "  get <id>        Get event details by ID"
+    echo "  create '<json>' Create an event from JSON"
+    echo "  delete <id>     Delete an event by ID"
+    echo ""
+    echo "Create example:"
+    echo '  gcal create '"'"'{"summary":"Meeting","start":{"dateTime":"2026-03-27T14:00:00-07:00"},"end":{"dateTime":"2026-03-27T15:00:00-07:00"}}'"'"''
+    ;;
+esac
