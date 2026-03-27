@@ -56,6 +56,10 @@ RUN chmod +x /usr/local/bin/pdf-reader
 COPY skills/gcal/gcal /usr/local/bin/gcal
 RUN chmod +x /usr/local/bin/gcal
 
+# Install gmail-cli
+COPY skills/gmail/gmail-cli /usr/local/bin/gmail-cli
+RUN chmod +x /usr/local/bin/gmail-cli
+
 # Create workspace directories
 RUN mkdir -p /workspace/group /workspace/global /workspace/extra /workspace/ipc/messages /workspace/ipc/tasks /workspace/ipc/input
 

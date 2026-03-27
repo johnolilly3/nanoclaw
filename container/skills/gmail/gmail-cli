@@ -1,0 +1,189 @@
+#!/bin/bash
+# Gmail CLI tool for NanoClaw agents
+# Usage: gmail-cli inbox [n] | gmail-cli read <id> | gmail-cli search <query> | gmail-cli send <to> <subject> <body> | gmail-cli draft <to> <subject> <body> | gmail-cli labels
+
+CREDS_DIR="$HOME/.gmail-mcp"
+GMAIL_TOKEN="$CREDS_DIR/credentials.json"
+OAUTH_FILE="$CREDS_DIR/gcp-oauth.keys.json"
+
+refresh_token() {
+  local client_id=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$OAUTH_FILE','utf8')).installed.client_id)")
+  local client_secret=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$OAUTH_FILE','utf8')).installed.client_secret)")
+  local refresh=$(node -e "const d=JSON.parse(require('fs').readFileSync('$GMAIL_TOKEN','utf8')); console.log(d.refresh_token)")
+  curl -s -X POST https://oauth2.googleapis.com/token \
+    -d "client_id=$client_id&client_secret=$client_secret&refresh_token=$refresh&grant_type=refresh_token" \
+    | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); console.log(d.access_token)"
+}
+
+ACCESS_TOKEN=$(refresh_token)
+API="https://gmail.googleapis.com/gmail/v1/users/me"
+
+case "${1:-inbox}" in
+  inbox)
+    MAX="${2:-10}"
+    curl -s "$API/messages?maxResults=$MAX&q=in:inbox" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        if(!d.messages||d.messages.length===0){console.log('No messages.');process.exit(0)}
+        const ids=d.messages.map(m=>m.id);
+        const fetch=globalThis.fetch||require('node-fetch');
+        Promise.all(ids.map(id=>
+          fetch('$API/messages/'+id+'?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date',
+            {headers:{'Authorization':'Bearer $ACCESS_TOKEN'}})
+          .then(r=>r.json())
+        )).then(msgs=>{
+          msgs.forEach(m=>{
+            const headers=m.payload?.headers||[];
+            const from=headers.find(h=>h.name==='From')?.value||'Unknown';
+            const subject=headers.find(h=>h.name==='Subject')?.value||'(no subject)';
+            const date=headers.find(h=>h.name==='Date')?.value||'';
+            const unread=m.labelIds?.includes('UNREAD')?'*':'';
+            console.log('---');
+            console.log(unread+'From:',from);
+            console.log('Subject:',subject);
+            console.log('Date:',date);
+            console.log('ID:',m.id);
+          });
+          console.log('---');
+          console.log('Total:',msgs.length,'messages');
+        });
+      "
+    ;;
+  read)
+    if [ -z "$2" ]; then echo "Usage: gmail-cli read <messageId>"; exit 1; fi
+    curl -s "$API/messages/$2?format=full" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const m=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(m.error){console.error('Error:',m.error.message);process.exit(1)}
+        const headers=m.payload?.headers||[];
+        const from=headers.find(h=>h.name==='From')?.value||'Unknown';
+        const to=headers.find(h=>h.name==='To')?.value||'';
+        const subject=headers.find(h=>h.name==='Subject')?.value||'(no subject)';
+        const date=headers.find(h=>h.name==='Date')?.value||'';
+        console.log('From:',from);
+        console.log('To:',to);
+        console.log('Subject:',subject);
+        console.log('Date:',date);
+        console.log('');
+        function getBody(part){
+          if(part.mimeType==='text/plain'&&part.body?.data){
+            return Buffer.from(part.body.data,'base64url').toString('utf8');
+          }
+          if(part.parts){
+            for(const p of part.parts){const b=getBody(p);if(b)return b;}
+          }
+          return null;
+        }
+        const body=getBody(m.payload)||'(no text body)';
+        console.log(body);
+      "
+    ;;
+  search)
+    shift
+    QUERY=\"$*\"
+    if [ -z "$QUERY" ]; then echo "Usage: gmail-cli search <query>"; exit 1; fi
+    curl -s "$API/messages?maxResults=10&q=$(node -e "console.log(encodeURIComponent('$QUERY'))")" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        if(!d.messages||d.messages.length===0){console.log('No messages found.');process.exit(0)}
+        const ids=d.messages.map(m=>m.id);
+        const fetch=globalThis.fetch||require('node-fetch');
+        Promise.all(ids.map(id=>
+          fetch('$API/messages/'+id+'?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date',
+            {headers:{'Authorization':'Bearer $ACCESS_TOKEN'}})
+          .then(r=>r.json())
+        )).then(msgs=>{
+          msgs.forEach(m=>{
+            const headers=m.payload?.headers||[];
+            const from=headers.find(h=>h.name==='From')?.value||'Unknown';
+            const subject=headers.find(h=>h.name==='Subject')?.value||'(no subject)';
+            const date=headers.find(h=>h.name==='Date')?.value||'';
+            console.log('---');
+            console.log('From:',from);
+            console.log('Subject:',subject);
+            console.log('Date:',date);
+            console.log('ID:',m.id);
+          });
+          console.log('---');
+          console.log('Total:',msgs.length,'results');
+        });
+      "
+    ;;
+  send)
+    TO="$2"; SUBJECT="$3"; shift 3; BODY="$*"
+    if [ -z "$TO" ] || [ -z "$SUBJECT" ] || [ -z "$BODY" ]; then
+      echo "Usage: gmail-cli send <to> <subject> <body>"
+      exit 1
+    fi
+    RAW=$(printf "To: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s" "$TO" "$SUBJECT" "$BODY" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+    curl -s -X POST "$API/messages/send" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"raw\":\"$RAW\"}" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        console.log('Sent! Message ID:',d.id);
+      "
+    ;;
+  draft)
+    TO="$2"; SUBJECT="$3"; shift 3; BODY="$*"
+    if [ -z "$TO" ] || [ -z "$SUBJECT" ] || [ -z "$BODY" ]; then
+      echo "Usage: gmail-cli draft <to> <subject> <body>"
+      exit 1
+    fi
+    RAW=$(printf "To: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s" "$TO" "$SUBJECT" "$BODY" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+    curl -s -X POST "$API/messages/drafts" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"message\":{\"raw\":\"$RAW\"}}" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        console.log('Draft created! ID:',d.id);
+      "
+    ;;
+  reply)
+    MSG_ID="$2"; shift 2; BODY="$*"
+    if [ -z "$MSG_ID" ] || [ -z "$BODY" ]; then
+      echo "Usage: gmail-cli reply <messageId> <body>"
+      exit 1
+    fi
+    # Get original message headers
+    ORIG=$(curl -s "$API/messages/$MSG_ID?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID" \
+      -H "Authorization: Bearer $ACCESS_TOKEN")
+    TO=$(echo "$ORIG" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const h=d.payload?.headers||[];console.log(h.find(x=>x.name==='From')?.value||'')")
+    SUBJECT=$(echo "$ORIG" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const h=d.payload?.headers||[];const s=h.find(x=>x.name==='Subject')?.value||'';console.log(s.startsWith('Re:')?s:'Re: '+s)")
+    THREAD_ID=$(echo "$ORIG" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.threadId||'')")
+    MSG_REF=$(echo "$ORIG" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));const h=d.payload?.headers||[];console.log(h.find(x=>x.name==='Message-ID')?.value||'')")
+    RAW=$(printf "To: %s\r\nSubject: %s\r\nIn-Reply-To: %s\r\nReferences: %s\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n%s" "$TO" "$SUBJECT" "$MSG_REF" "$MSG_REF" "$BODY" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '=')
+    curl -s -X POST "$API/messages/send" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"raw\":\"$RAW\",\"threadId\":\"$THREAD_ID\"}" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        console.log('Reply sent! Message ID:',d.id);
+      "
+    ;;
+  labels)
+    curl -s "$API/labels" \
+      -H "Authorization: Bearer $ACCESS_TOKEN" | node -e "
+        const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+        if(d.error){console.error('Error:',d.error.message);process.exit(1)}
+        d.labels.sort((a,b)=>a.name.localeCompare(b.name)).forEach(l=>console.log(l.id,l.name));
+      "
+    ;;
+  *)
+    echo "Usage: gmail-cli <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  inbox [n]                        List latest n inbox messages (default: 10)"
+    echo "  read <messageId>                 Read full message"
+    echo "  search <query>                   Search messages (Gmail search syntax)"
+    echo "  send <to> <subject> <body>       Send email"
+    echo "  draft <to> <subject> <body>      Create draft"
+    echo "  reply <messageId> <body>         Reply to a message"
+    echo "  labels                           List all labels"
+    ;;
+esac
