@@ -359,20 +359,25 @@ export function getMessagesSince(
   chatJid: string,
   sinceTimestamp: string,
   botPrefix: string,
+  limit: number = 200,
 ): NewMessage[] {
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
+  // Subquery takes the N most recent, outer query re-sorts chronologically.
   const sql = `
-    SELECT id, chat_jid, sender, sender_name, content, timestamp
-    FROM messages
-    WHERE chat_jid = ? AND timestamp > ?
-      AND is_bot_message = 0 AND content NOT LIKE ?
-      AND content != '' AND content IS NOT NULL
-    ORDER BY timestamp
+    SELECT * FROM (
+      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me
+      FROM messages
+      WHERE chat_jid = ? AND timestamp > ?
+        AND is_bot_message = 0 AND content NOT LIKE ?
+        AND content != '' AND content IS NOT NULL
+      ORDER BY timestamp DESC
+      LIMIT ?
+    ) ORDER BY timestamp
   `;
   return db
     .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+    .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
 }
 
 export function getMessageFromMe(messageId: string, chatJid: string): boolean {
@@ -494,6 +499,19 @@ export function getReactionStats(chatJid?: string): Array<{
   return chatJid
     ? (db.prepare(sql).all(chatJid) as Result[])
     : (db.prepare(sql).all() as Result[]);
+}
+
+export function getLastBotMessageTimestamp(
+  chatJid: string,
+  botPrefix: string,
+): string | undefined {
+  const row = db
+    .prepare(
+      `SELECT MAX(timestamp) as ts FROM messages
+       WHERE chat_jid = ? AND (is_bot_message = 1 OR content LIKE ?)`,
+    )
+    .get(chatJid, `${botPrefix}:%`) as { ts: string | null } | undefined;
+  return row?.ts ?? undefined;
 }
 
 export function createTask(
@@ -667,6 +685,10 @@ export function setSession(groupFolder: string, sessionId: string): void {
   db.prepare(
     'INSERT OR REPLACE INTO sessions (group_folder, session_id) VALUES (?, ?)',
   ).run(groupFolder, sessionId);
+}
+
+export function deleteSession(groupFolder: string): void {
+  db.prepare('DELETE FROM sessions WHERE group_folder = ?').run(groupFolder);
 }
 
 export function getAllSessions(): Record<string, string> {

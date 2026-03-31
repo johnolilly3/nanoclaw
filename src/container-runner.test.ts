@@ -51,6 +51,17 @@ vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
 }));
 
+// Mock container-runtime (Apple Container)
+vi.mock('./container-runtime.js', () => ({
+  CONTAINER_RUNTIME_BIN: 'container',
+  hostGatewayArgs: () => [],
+  readonlyMountArgs: (h: string, c: string) => [
+    '--mount',
+    `type=bind,source=${h},target=${c},readonly`,
+  ],
+  stopContainer: vi.fn(),
+}));
+
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
   const proc = new EventEmitter() as EventEmitter & {

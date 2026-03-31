@@ -314,7 +314,7 @@ When you receive an email notification (messages starting with `[Email from ...`
 
 ## Task Scripts
 
-To check or monitor something on a recurring basis, use `schedule_task` — not a bash loop. This way the check survives container restarts and doesn't block other messages. If the user only needs to know when a condition changes, add a `script` to avoid unnecessary wake-ups — the script runs first, and you only wake up when there's something to act on.
+For any recurring task, use `schedule_task`. Frequent agent invocations — especially multiple times a day — consume API credits and can risk account restrictions. If a simple check can determine whether action is needed, add a `script` — it runs first, and the agent is only called when the check passes. This keeps invocations to a minimum.
 
 ### How it works
 
