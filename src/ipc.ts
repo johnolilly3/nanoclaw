@@ -65,7 +65,8 @@ export function resolveContainerPath(
 
     const mounts = group.containerConfig?.additionalMounts || [];
     for (const mount of mounts) {
-      const expectedContainerName = mount.containerPath || path.basename(mount.hostPath);
+      const expectedContainerName =
+        mount.containerPath || path.basename(mount.hostPath);
       if (expectedContainerName === mountName) {
         let hostBase = mount.hostPath;
         if (hostBase.startsWith('~/')) {
@@ -181,6 +182,46 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   logger.warn(
                     { chatJid: data.chatJid, sourceGroup },
                     'Unauthorized IPC reaction attempt blocked',
+                  );
+                }
+              } else if (
+                data.type === 'file' &&
+                data.chatJid &&
+                data.filePath &&
+                deps.sendFile
+              ) {
+                const targetGroup = registeredGroups[data.chatJid];
+                if (
+                  isMain ||
+                  (targetGroup && targetGroup.folder === sourceGroup)
+                ) {
+                  const senderGroup = Object.values(registeredGroups).find(
+                    (g) => g.folder === sourceGroup,
+                  );
+                  if (senderGroup) {
+                    const hostPath = resolveContainerPath(data.filePath, senderGroup);
+                    if (hostPath && fs.existsSync(hostPath)) {
+                      await deps.sendFile(data.chatJid, hostPath, data.caption);
+                      logger.info(
+                        { chatJid: data.chatJid, filePath: hostPath, sourceGroup },
+                        'IPC file sent',
+                      );
+                    } else {
+                      logger.warn(
+                        {
+                          chatJid: data.chatJid,
+                          containerPath: data.filePath,
+                          resolvedPath: hostPath,
+                          sourceGroup,
+                        },
+                        'IPC file rejected - path not resolved or file not found',
+                      );
+                    }
+                  }
+                } else {
+                  logger.warn(
+                    { chatJid: data.chatJid, sourceGroup },
+                    'Unauthorized IPC file attempt blocked',
                   );
                 }
               }
