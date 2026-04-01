@@ -104,6 +104,7 @@ export interface Channel {
     emoji: string,
   ): Promise<void>;
   reactToLatestMessage?(chatJid: string, emoji: string): Promise<void>;
+  sendFile?(jid: string, filePath: string, caption?: string): Promise<void>;
 }
 
 // Callback type that channels use to deliver inbound messages
