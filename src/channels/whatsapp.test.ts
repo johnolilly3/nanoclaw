@@ -1220,6 +1220,107 @@ describe('WhatsAppChannel', () => {
     });
   });
 
+  // --- sendFile ---
+
+  describe('sendFile', () => {
+    it('sends a document with correct payload for a PDF', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      const fs = await import('fs');
+      const fakeBuffer = Buffer.from('fake-pdf-content');
+      vi.spyOn(fs.default, 'readFileSync').mockReturnValueOnce(
+        fakeBuffer as any,
+      );
+
+      await channel.sendFile(
+        'test@g.us',
+        '/workspace/output/report.pdf',
+        'Here is your report',
+      );
+
+      expect(fakeSocket.sendMessage).toHaveBeenCalledWith('test@g.us', {
+        document: fakeBuffer,
+        mimetype: 'application/pdf',
+        fileName: 'report.pdf',
+        caption: 'Here is your report',
+      });
+    });
+
+    it('detects mimetype from file extension', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      const fs = await import('fs');
+      const fakeBuffer = Buffer.from('fake-csv-content');
+      vi.spyOn(fs.default, 'readFileSync').mockReturnValueOnce(
+        fakeBuffer as any,
+      );
+
+      await channel.sendFile('test@g.us', '/workspace/output/data.csv');
+
+      expect(fakeSocket.sendMessage).toHaveBeenCalledWith('test@g.us', {
+        document: fakeBuffer,
+        mimetype: 'text/csv',
+        fileName: 'data.csv',
+        caption: undefined,
+      });
+    });
+
+    it('falls back to application/octet-stream for unknown extension', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      const fs = await import('fs');
+      const fakeBuffer = Buffer.from('binary-data');
+      vi.spyOn(fs.default, 'readFileSync').mockReturnValueOnce(
+        fakeBuffer as any,
+      );
+
+      await channel.sendFile('test@g.us', '/workspace/output/archive.zip');
+
+      expect(fakeSocket.sendMessage).toHaveBeenCalledWith('test@g.us', {
+        document: fakeBuffer,
+        mimetype: 'application/octet-stream',
+        fileName: 'archive.zip',
+        caption: undefined,
+      });
+    });
+
+    it('returns early without throwing when not connected', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      // Do not connect — channel starts disconnected
+
+      await expect(
+        channel.sendFile('test@g.us', '/workspace/output/report.pdf'),
+      ).resolves.toBeUndefined();
+
+      expect(fakeSocket.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('handles file read failure gracefully', async () => {
+      const opts = createTestOpts();
+      const channel = new WhatsAppChannel(opts);
+      await connectChannel(channel);
+
+      const fs = await import('fs');
+      vi.spyOn(fs.default, 'readFileSync').mockImplementationOnce(() => {
+        throw new Error('File not found');
+      });
+
+      // Should not throw
+      await expect(
+        channel.sendFile('test@g.us', '/workspace/output/missing.pdf'),
+      ).resolves.toBeUndefined();
+
+      expect(fakeSocket.sendMessage).not.toHaveBeenCalled();
+    });
+  });
+
   // --- Channel properties ---
 
   describe('channel properties', () => {

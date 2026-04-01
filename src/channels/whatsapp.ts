@@ -363,6 +363,51 @@ export class WhatsAppChannel implements Channel {
     }
   }
 
+  async sendFile(
+    jid: string,
+    filePath: string,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.connected) {
+      logger.warn({ jid, filePath }, 'Cannot send file - not connected');
+      return;
+    }
+
+    const mimeTypes: Record<string, string> = {
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xlsx':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.csv': 'text/csv',
+      '.txt': 'text/plain',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+    };
+
+    const ext = path.extname(filePath).toLowerCase();
+    const mimetype = mimeTypes[ext] || 'application/octet-stream';
+    const fileName = path.basename(filePath);
+
+    try {
+      const buffer = fs.readFileSync(filePath);
+      await this.sock.sendMessage(jid, {
+        document: buffer,
+        mimetype,
+        fileName,
+        caption: caption || undefined,
+      });
+      logger.info(
+        { jid, fileName, mimetype, size: buffer.length },
+        'File sent',
+      );
+    } catch (err) {
+      logger.error({ jid, filePath, err }, 'Failed to send file');
+    }
+  }
+
   async sendReaction(
     chatJid: string,
     messageKey: {
