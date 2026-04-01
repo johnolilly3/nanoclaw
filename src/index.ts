@@ -450,7 +450,9 @@ async function runAgent(
       const isStaleSession =
         sessionId &&
         output.error &&
-        /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(output.error);
+        /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(
+          output.error,
+        );
 
       if (isStaleSession) {
         logger.warn(
@@ -835,6 +837,14 @@ async function main(): Promise<void> {
           throw new Error('Channel does not support reactions');
         await channel.reactToLatestMessage(jid, emoji);
       }
+    },
+    sendFile: async (jid, filePath, caption) => {
+      const channel = findChannel(channels, jid);
+      if (!channel?.sendFile) {
+        logger.warn({ jid }, 'No channel with sendFile for JID');
+        return;
+      }
+      await channel.sendFile(jid, filePath, caption);
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
