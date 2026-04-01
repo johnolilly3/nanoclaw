@@ -8,7 +8,7 @@ import {
   getTaskById,
   setRegisteredGroup,
 } from './db.js';
-import { processTaskIpc, IpcDeps } from './ipc.js';
+import { processTaskIpc, resolveContainerPath, IpcDeps } from './ipc.js';
 import { RegisteredGroup } from './types.js';
 
 // Set up registered groups used across tests
@@ -757,6 +757,67 @@ describe('schedule_task context_mode', () => {
 
     const tasks = getAllTasks();
     expect(tasks[0].context_mode).toBe('isolated');
+  });
+});
+
+// --- resolveContainerPath ---
+
+describe('resolveContainerPath', () => {
+  const ZBOT_GROUP: RegisteredGroup = {
+    name: 'Zbot',
+    folder: 'zbot',
+    trigger: '@bot',
+    added_at: '2024-01-01T00:00:00.000Z',
+    containerConfig: {
+      additionalMounts: [
+        { hostPath: '/Users/homebot/Dropbox/Zack', readonly: false },
+      ],
+    },
+  };
+
+  it('resolves /workspace/extra/{name}/file to hostPath/file', () => {
+    const result = resolveContainerPath(
+      '/workspace/extra/Zack/504-plan.pdf',
+      ZBOT_GROUP,
+    );
+    expect(result).toBe('/Users/homebot/Dropbox/Zack/504-plan.pdf');
+  });
+
+  it('resolves /workspace/group/notes.txt to group folder path', () => {
+    const result = resolveContainerPath('/workspace/group/notes.txt', ZBOT_GROUP);
+    expect(result).toMatch(/groups\/zbot\/notes\.txt$/);
+  });
+
+  it('returns null for path outside known mounts', () => {
+    const result = resolveContainerPath('/etc/passwd', ZBOT_GROUP);
+    expect(result).toBeNull();
+  });
+
+  it('returns null for path traversal attempt', () => {
+    const result = resolveContainerPath(
+      '/workspace/extra/Zack/../../etc/passwd',
+      ZBOT_GROUP,
+    );
+    expect(result).toBeNull();
+  });
+
+  it('resolves mount with explicit containerPath', () => {
+    const group: RegisteredGroup = {
+      name: 'Docs',
+      folder: 'docs-group',
+      trigger: '@bot',
+      added_at: '2024-01-01T00:00:00.000Z',
+      containerConfig: {
+        additionalMounts: [
+          { hostPath: '/data/docs', containerPath: 'docs', readonly: true },
+        ],
+      },
+    };
+    const result = resolveContainerPath(
+      '/workspace/extra/docs/report.pdf',
+      group,
+    );
+    expect(result).toBe('/data/docs/report.pdf');
   });
 });
 

@@ -6,7 +6,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
-import { isValidGroupFolder } from './group-folder.js';
+import { isValidGroupFolder, resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
@@ -35,6 +35,49 @@ export interface IpcDeps {
 
 let ipcWatcherRunning = false;
 const RECOVERY_INTERVAL_MS = 60_000;
+
+/**
+ * Resolve a container-internal path back to the corresponding host path.
+ * Returns null if the path doesn't match any known mount (security rejection).
+ */
+export function resolveContainerPath(
+  containerPath: string,
+  group: RegisteredGroup,
+): string | null {
+  // Reject path traversal
+  if (containerPath.includes('..')) return null;
+
+  // /workspace/group/* → group folder
+  if (containerPath.startsWith('/workspace/group/')) {
+    const relative = containerPath.slice('/workspace/group/'.length);
+    if (!relative || relative.includes('..')) return null;
+    return path.join(resolveGroupFolderPath(group.folder), relative);
+  }
+
+  // /workspace/extra/{name}/* → additionalMounts
+  if (containerPath.startsWith('/workspace/extra/')) {
+    const rest = containerPath.slice('/workspace/extra/'.length);
+    const slashIdx = rest.indexOf('/');
+    if (slashIdx === -1) return null;
+    const mountName = rest.slice(0, slashIdx);
+    const relative = rest.slice(slashIdx + 1);
+    if (!relative) return null;
+
+    const mounts = group.containerConfig?.additionalMounts || [];
+    for (const mount of mounts) {
+      const expectedContainerName = mount.containerPath || path.basename(mount.hostPath);
+      if (expectedContainerName === mountName) {
+        let hostBase = mount.hostPath;
+        if (hostBase.startsWith('~/')) {
+          hostBase = path.join(process.env.HOME || '', hostBase.slice(2));
+        }
+        return path.join(hostBase, relative);
+      }
+    }
+  }
+
+  return null;
+}
 
 export function startIpcWatcher(deps: IpcDeps): void {
   if (ipcWatcherRunning) {
