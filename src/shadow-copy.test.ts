@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { prepareShadowCopy, syncBack } from './shadow-copy.js';
+import { prepareShadowCopy, syncBack, startSyncLoop, stopSyncLoop } from './shadow-copy.js';
 
 let tmpDir: string;
 
@@ -133,7 +133,9 @@ describe('syncBack', () => {
 
     expect(count).toBe(1);
     expect(fs.existsSync(path.join(source, 'new-file.txt'))).toBe(true);
-    expect(fs.readFileSync(path.join(source, 'new-file.txt'), 'utf8')).toBe('brand new');
+    expect(fs.readFileSync(path.join(source, 'new-file.txt'), 'utf8')).toBe(
+      'brand new',
+    );
   });
 
   it('handles nested directories', () => {
@@ -142,14 +144,62 @@ describe('syncBack', () => {
     fs.mkdirSync(source);
     fs.mkdirSync(path.join(staging, 'subdir'), { recursive: true });
 
-    fs.writeFileSync(path.join(staging, 'subdir', 'nested.txt'), 'nested content');
+    fs.writeFileSync(
+      path.join(staging, 'subdir', 'nested.txt'),
+      'nested content',
+    );
 
     const count = syncBack(staging, source);
 
     expect(count).toBe(1);
     expect(fs.existsSync(path.join(source, 'subdir', 'nested.txt'))).toBe(true);
-    expect(fs.readFileSync(path.join(source, 'subdir', 'nested.txt'), 'utf8')).toBe(
-      'nested content',
-    );
+    expect(
+      fs.readFileSync(path.join(source, 'subdir', 'nested.txt'), 'utf8'),
+    ).toBe('nested content');
+  });
+});
+
+// --- startSyncLoop / stopSyncLoop ---
+
+describe('startSyncLoop / stopSyncLoop', () => {
+  it('starts and stops without error', () => {
+    const source = path.join(tmpDir, 'source');
+    const staging = path.join(tmpDir, 'staging');
+    fs.mkdirSync(source);
+    fs.mkdirSync(staging);
+
+    const handle = startSyncLoop(staging, source, 50);
+    expect(handle).toBeDefined();
+    stopSyncLoop(staging);
+  });
+
+  it('stopSyncLoop is safe to call when no loop exists', () => {
+    expect(() => stopSyncLoop('/nonexistent/path')).not.toThrow();
+  });
+
+  it('sync loop copies changed files on interval', async () => {
+    const source = path.join(tmpDir, 'source');
+    const staging = path.join(tmpDir, 'staging');
+    fs.mkdirSync(source);
+    fs.mkdirSync(staging);
+
+    // Write a file to staging that is newer than source
+    const sourceFile = path.join(source, 'watched.txt');
+    const stagingFile = path.join(staging, 'watched.txt');
+
+    fs.writeFileSync(sourceFile, 'before');
+    fs.writeFileSync(stagingFile, 'after');
+
+    const now = Date.now();
+    fs.utimesSync(sourceFile, now / 1000, (now - 2000) / 1000);
+    fs.utimesSync(stagingFile, now / 1000, now / 1000);
+
+    startSyncLoop(staging, source, 50);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    stopSyncLoop(staging);
+
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe('after');
   });
 });

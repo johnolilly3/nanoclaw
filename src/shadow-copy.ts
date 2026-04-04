@@ -55,3 +55,36 @@ export function syncBack(stagingPath: string, sourcePath: string): number {
   }
   return copied;
 }
+
+const activeSyncLoops = new Map<string, NodeJS.Timeout>();
+export const DEFAULT_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+
+export function startSyncLoop(
+  stagingPath: string,
+  sourcePath: string,
+  intervalMs: number = DEFAULT_SYNC_INTERVAL_MS,
+): NodeJS.Timeout {
+  stopSyncLoop(stagingPath);
+  const handle = setInterval(() => {
+    try {
+      syncBack(stagingPath, sourcePath);
+    } catch (err) {
+      logger.warn({ staging: stagingPath, source: sourcePath, err }, 'Shadow sync-back failed');
+    }
+  }, intervalMs);
+  handle.unref();
+  activeSyncLoops.set(stagingPath, handle);
+  logger.info(
+    { staging: stagingPath, source: sourcePath, intervalMs },
+    'Shadow sync loop started',
+  );
+  return handle;
+}
+
+export function stopSyncLoop(stagingPath: string): void {
+  const handle = activeSyncLoops.get(stagingPath);
+  if (handle) {
+    clearInterval(handle);
+    activeSyncLoops.delete(stagingPath);
+  }
+}
