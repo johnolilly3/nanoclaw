@@ -112,6 +112,8 @@ vi.mock('child_process', async () => {
 });
 
 import { runContainerAgent, ContainerOutput } from './container-runner.js';
+import { validateAdditionalMounts } from './mount-security.js';
+import { prepareShadowCopy, startSyncLoop, stopSyncLoop, syncBack } from './shadow-copy.js';
 import type { RegisteredGroup } from './types.js';
 
 const testGroup: RegisteredGroup = {
@@ -139,6 +141,7 @@ function emitOutputMarker(
 describe('container-runner timeout behavior', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     fakeProc = createFakeProcess();
   });
 
@@ -203,6 +206,68 @@ describe('container-runner timeout behavior', () => {
     expect(result.status).toBe('error');
     expect(result.error).toContain('timed out');
     expect(onOutput).not.toHaveBeenCalled();
+  });
+
+  it('shadow copy mount substitutes staging dir and manages sync lifecycle', async () => {
+    const { spawn } = await import('child_process');
+    const mockSpawn = vi.mocked(spawn);
+
+    // Mock validateAdditionalMounts to return a writable mount
+    vi.mocked(validateAdditionalMounts).mockReturnValueOnce([
+      {
+        hostPath: '/Users/test/Dropbox/Medical',
+        containerPath: '/workspace/extra/Medical',
+        readonly: false,
+      },
+    ]);
+
+    const groupWithShadow: RegisteredGroup = {
+      ...testGroup,
+      containerConfig: {
+        additionalMounts: [
+          { hostPath: '~/Dropbox/Medical', readonly: false, shadowCopy: true },
+        ],
+      },
+    };
+
+    const onOutput = vi.fn(async () => {});
+    const resultPromise = runContainerAgent(
+      groupWithShadow,
+      testInput,
+      () => {},
+      onOutput,
+    );
+
+    // Verify prepareShadowCopy was called with correct paths
+    expect(vi.mocked(prepareShadowCopy)).toHaveBeenCalledWith(
+      '/Users/test/Dropbox/Medical',
+      expect.stringContaining('/shadow/test-group/Medical'),
+    );
+
+    // Verify startSyncLoop was called
+    expect(vi.mocked(startSyncLoop)).toHaveBeenCalledWith(
+      expect.stringContaining('/shadow/test-group/Medical'),
+      '/Users/test/Dropbox/Medical',
+    );
+
+    // Verify spawn was called with staging path, not Dropbox path
+    const spawnArgs = (mockSpawn.mock.calls[0][1] as string[]).join(' ');
+    expect(spawnArgs).toContain('/shadow/');
+    expect(spawnArgs).not.toContain('Dropbox/Medical:/workspace');
+
+    // Clean up: emit output and close
+    emitOutputMarker(fakeProc, { status: 'success', result: 'done' });
+    await vi.advanceTimersByTimeAsync(10);
+    fakeProc.emit('close', 0);
+    await vi.advanceTimersByTimeAsync(10);
+    await resultPromise;
+
+    // Verify cleanup: stopSyncLoop and final syncBack were called
+    expect(vi.mocked(stopSyncLoop)).toHaveBeenCalled();
+    expect(vi.mocked(syncBack)).toHaveBeenCalledWith(
+      expect.stringContaining('/shadow/test-group/Medical'),
+      '/Users/test/Dropbox/Medical',
+    );
   });
 
   it('normal exit after output resolves as success', async () => {
