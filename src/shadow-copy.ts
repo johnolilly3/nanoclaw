@@ -11,10 +11,13 @@ export function prepareShadowCopy(
     fs.rmSync(stagingPath, { recursive: true, force: true });
   }
   fs.mkdirSync(stagingPath, { recursive: true });
-  // Use shell cp instead of fs.cpSync — Dropbox files have locks that
-  // cause EDEADLK with Node's cpSync (which uses lseek internally).
-  // Shell cp works fine on these files.
-  execSync(`cp -a "${sourcePath}/." "${stagingPath}/"`, { timeout: 120000 });
+  // Use rsync instead of fs.cpSync — Dropbox files have locks that cause
+  // EDEADLK with Node's cpSync (which uses lseek). rsync handles errors
+  // gracefully and lets us exclude directories we don't need (.venv, .git).
+  execSync(
+    `rsync -a --delete --exclude='.venv' --exclude='.git' --exclude='node_modules' "${sourcePath}/" "${stagingPath}/"`,
+    { timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'] },
+  );
   logger.info(
     { source: sourcePath, staging: stagingPath },
     'Shadow copy prepared',
