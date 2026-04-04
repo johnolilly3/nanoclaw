@@ -28,6 +28,12 @@ import {
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
 import { validateAdditionalMounts } from './mount-security.js';
+import {
+  prepareShadowCopy,
+  syncBack,
+  startSyncLoop,
+  stopSyncLoop,
+} from './shadow-copy.js';
 import { RegisteredGroup } from './types.js';
 
 // Sentinel markers for robust output parsing (must match agent-runner)
@@ -59,10 +65,15 @@ interface VolumeMount {
   readonly: boolean;
 }
 
+export interface ShadowCopyPair {
+  stagingPath: string;
+  sourcePath: string;
+}
+
 function buildVolumeMounts(
   group: RegisteredGroup,
   isMain: boolean,
-): VolumeMount[] {
+): { mounts: VolumeMount[]; shadowPairs: ShadowCopyPair[] } {
   const mounts: VolumeMount[] = [];
   const projectRoot = process.cwd();
   const groupDir = resolveGroupFolderPath(group.folder);
@@ -215,16 +226,43 @@ function buildVolumeMounts(
   });
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
+  const shadowPairs: ShadowCopyPair[] = [];
   if (group.containerConfig?.additionalMounts) {
+    const rawMounts = group.containerConfig.additionalMounts;
     const validatedMounts = validateAdditionalMounts(
-      group.containerConfig.additionalMounts,
+      rawMounts,
       group.name,
       isMain,
     );
-    mounts.push(...validatedMounts);
+
+    for (let i = 0; i < validatedMounts.length; i++) {
+      const validated = validatedMounts[i];
+      const raw = rawMounts[i];
+
+      if (raw.shadowCopy && !validated.readonly) {
+        const basename = path.basename(validated.hostPath);
+        const stagingDir = path.join(DATA_DIR, 'shadow', group.folder, basename);
+        const sourcePath = validated.hostPath;
+
+        logger.info(
+          { group: group.name, source: sourcePath, staging: stagingDir },
+          'Preparing shadow copy for mount',
+        );
+        prepareShadowCopy(sourcePath, stagingDir);
+
+        mounts.push({
+          hostPath: stagingDir,
+          containerPath: validated.containerPath,
+          readonly: false,
+        });
+        shadowPairs.push({ stagingPath: stagingDir, sourcePath });
+      } else {
+        mounts.push(validated);
+      }
+    }
   }
 
-  return mounts;
+  return { mounts, shadowPairs };
 }
 
 function buildContainerArgs(
@@ -298,7 +336,7 @@ export async function runContainerAgent(
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, input.isMain);
+  const { mounts, shadowPairs } = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
   const containerArgs = buildContainerArgs(mounts, containerName, input.isMain);
@@ -335,6 +373,11 @@ export async function runContainerAgent(
     });
 
     onProcess(container, containerName);
+
+    // Start shadow copy sync loops for any shadow-copied mounts
+    for (const pair of shadowPairs) {
+      startSyncLoop(pair.stagingPath, pair.sourcePath);
+    }
 
     let stdout = '';
     let stderr = '';
@@ -457,6 +500,24 @@ export async function runContainerAgent(
 
     container.on('close', (code) => {
       clearTimeout(timeout);
+
+      // Final sync-back and cleanup for shadow-copied mounts
+      for (const pair of shadowPairs) {
+        stopSyncLoop(pair.stagingPath);
+        try {
+          syncBack(pair.stagingPath, pair.sourcePath);
+          logger.info(
+            { staging: pair.stagingPath, source: pair.sourcePath },
+            'Final shadow sync-back completed',
+          );
+        } catch (err) {
+          logger.error(
+            { staging: pair.stagingPath, source: pair.sourcePath, err },
+            'Final shadow sync-back failed',
+          );
+        }
+      }
+
       const duration = Date.now() - startTime;
 
       if (timedOut) {

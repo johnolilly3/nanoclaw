@@ -53,6 +53,7 @@ vi.mock('./mount-security.js', () => ({
 
 // Mock container-runtime (Apple Container)
 vi.mock('./container-runtime.js', () => ({
+  CONTAINER_HOST_GATEWAY: '192.168.64.1',
   CONTAINER_RUNTIME_BIN: 'container',
   hostGatewayArgs: () => [],
   readonlyMountArgs: (h: string, c: string) => [
@@ -60,6 +61,19 @@ vi.mock('./container-runtime.js', () => ({
     `type=bind,source=${h},target=${c},readonly`,
   ],
   stopContainer: vi.fn(),
+}));
+
+// Mock credential-proxy
+vi.mock('./credential-proxy.js', () => ({
+  detectAuthMode: vi.fn(() => 'api-key'),
+}));
+
+// Mock shadow-copy
+vi.mock('./shadow-copy.js', () => ({
+  prepareShadowCopy: vi.fn(),
+  syncBack: vi.fn(),
+  startSyncLoop: vi.fn(),
+  stopSyncLoop: vi.fn(),
 }));
 
 // Create a controllable fake ChildProcess
