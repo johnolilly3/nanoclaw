@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { logger } from './logger.js';
@@ -10,7 +11,10 @@ export function prepareShadowCopy(
     fs.rmSync(stagingPath, { recursive: true, force: true });
   }
   fs.mkdirSync(stagingPath, { recursive: true });
-  fs.cpSync(sourcePath, stagingPath, { recursive: true });
+  // Use shell cp instead of fs.cpSync — Dropbox files have locks that
+  // cause EDEADLK with Node's cpSync (which uses lseek internally).
+  // Shell cp works fine on these files.
+  execSync(`cp -a "${sourcePath}/." "${stagingPath}/"`, { timeout: 120000 });
   logger.info(
     { source: sourcePath, staging: stagingPath },
     'Shadow copy prepared',
@@ -69,7 +73,10 @@ export function startSyncLoop(
     try {
       syncBack(stagingPath, sourcePath);
     } catch (err) {
-      logger.warn({ staging: stagingPath, source: sourcePath, err }, 'Shadow sync-back failed');
+      logger.warn(
+        { staging: stagingPath, source: sourcePath, err },
+        'Shadow sync-back failed',
+      );
     }
   }, intervalMs);
   handle.unref();
