@@ -17,7 +17,7 @@ export function prepareShadowCopy(
   // locked files (e.g., .gitignore) are non-critical.
   try {
     execSync(
-      `rsync -a --delete --exclude='.venv' --exclude='.git' --exclude='node_modules' "${sourcePath}/" "${stagingPath}/"`,
+      `rsync -a --delete --exclude='.git' --exclude='node_modules' "${sourcePath}/" "${stagingPath}/"`,
       { timeout: 120000, stdio: ['pipe', 'pipe', 'pipe'] },
     );
   } catch (err: unknown) {
