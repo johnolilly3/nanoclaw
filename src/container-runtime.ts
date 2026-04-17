@@ -14,8 +14,21 @@ export const CONTAINER_RUNTIME_BIN = 'container';
 /** Hostname/IP containers use to reach the host machine. */
 export const CONTAINER_HOST_GATEWAY =
   CONTAINER_RUNTIME_BIN === 'container'
-    ? '192.168.64.1' // Apple Container default gateway
+    ? detectBridgeGateway() // Apple Container — read from bridge100
     : 'host.docker.internal'; // Docker Desktop
+
+function detectBridgeGateway(): string {
+  try {
+    const out = execSync('ifconfig bridge100 2>/dev/null', {
+      encoding: 'utf-8',
+    });
+    const match = out.match(/inet (\d+\.\d+\.\d+\.\d+)/);
+    if (match) return match[1];
+  } catch {
+    /* fall through */
+  }
+  return '192.168.64.1'; // sensible default
+}
 
 /**
  * Address the credential proxy binds to.

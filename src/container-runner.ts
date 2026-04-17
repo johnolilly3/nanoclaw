@@ -119,6 +119,17 @@ function buildVolumeMounts(
     }
   }
 
+  // Obsidian vaults — shared across all groups, read-write.
+  // No shadow copy: Obsidian Sync handles propagation from the host files.
+  const vaultsDir = path.join(os.homedir(), 'vaults');
+  if (fs.existsSync(vaultsDir)) {
+    mounts.push({
+      hostPath: vaultsDir,
+      containerPath: '/workspace/vaults',
+      readonly: false,
+    });
+  }
+
   // Per-group Claude sessions directory (isolated from other groups)
   // Each group gets their own .claude/ to prevent cross-group session access
   const groupSessionsDir = path.join(
@@ -241,7 +252,12 @@ function buildVolumeMounts(
 
       if (raw.shadowCopy && !validated.readonly) {
         const basename = path.basename(validated.hostPath);
-        const stagingDir = path.join(DATA_DIR, 'shadow', group.folder, basename);
+        const stagingDir = path.join(
+          DATA_DIR,
+          'shadow',
+          group.folder,
+          basename,
+        );
         const sourcePath = validated.hostPath;
 
         logger.info(

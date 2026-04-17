@@ -199,11 +199,18 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     (g) => g.folder === sourceGroup,
                   );
                   if (senderGroup) {
-                    const hostPath = resolveContainerPath(data.filePath, senderGroup);
+                    const hostPath = resolveContainerPath(
+                      data.filePath,
+                      senderGroup,
+                    );
                     if (hostPath && fs.existsSync(hostPath)) {
                       await deps.sendFile(data.chatJid, hostPath, data.caption);
                       logger.info(
-                        { chatJid: data.chatJid, filePath: hostPath, sourceGroup },
+                        {
+                          chatJid: data.chatJid,
+                          filePath: hostPath,
+                          sourceGroup,
+                        },
                         'IPC file sent',
                       );
                     } else {

@@ -55,6 +55,10 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.
 
+## Obsidian Vaults
+
+John's Obsidian vaults are mounted read-write at `/workspace/vaults/`. Subfolders like `Medical/` contain long-form writeups. Read and write files here directly — Obsidian Sync handles propagation to John's devices. Use the vaults (not `/workspace/group/`) for any content that belongs in his personal knowledge base.
+
 ## Memory
 
 The `conversations/` folder contains searchable history of past conversations. Use this to recall context from previous sessions.

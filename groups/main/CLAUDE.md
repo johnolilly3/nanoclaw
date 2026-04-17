@@ -109,6 +109,9 @@ Main has read-only access to the project and read-write access to its group fold
 |----------------|-----------|--------|
 | `/workspace/project` | Project root | read-only |
 | `/workspace/group` | `groups/main/` | read-write |
+| `/workspace/vaults` | `~/vaults/` (Obsidian) | read-write |
+
+Obsidian vaults are John's personal knowledge base. Subfolders like `Medical/` contain long-form writeups. Obsidian Sync propagates edits to his devices. Use `/workspace/vaults/` (not `/workspace/group/`) for anything that belongs in his knowledge base.
 
 Key paths inside the container:
 - `/workspace/project/store/messages.db` - SQLite database

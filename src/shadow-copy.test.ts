@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { prepareShadowCopy, syncBack, startSyncLoop, stopSyncLoop } from './shadow-copy.js';
+import {
+  prepareShadowCopy,
+  syncBack,
+  startSyncLoop,
+  stopSyncLoop,
+} from './shadow-copy.js';
 
 let tmpDir: string;
 

@@ -784,7 +784,10 @@ describe('resolveContainerPath', () => {
   });
 
   it('resolves /workspace/group/notes.txt to group folder path', () => {
-    const result = resolveContainerPath('/workspace/group/notes.txt', ZBOT_GROUP);
+    const result = resolveContainerPath(
+      '/workspace/group/notes.txt',
+      ZBOT_GROUP,
+    );
     expect(result).toMatch(/groups\/zbot\/notes\.txt$/);
   });
 

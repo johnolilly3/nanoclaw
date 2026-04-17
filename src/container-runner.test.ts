@@ -113,7 +113,12 @@ vi.mock('child_process', async () => {
 
 import { runContainerAgent, ContainerOutput } from './container-runner.js';
 import { validateAdditionalMounts } from './mount-security.js';
-import { prepareShadowCopy, startSyncLoop, stopSyncLoop, syncBack } from './shadow-copy.js';
+import {
+  prepareShadowCopy,
+  startSyncLoop,
+  stopSyncLoop,
+  syncBack,
+} from './shadow-copy.js';
 import type { RegisteredGroup } from './types.js';
 
 const testGroup: RegisteredGroup = {
