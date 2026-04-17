@@ -134,3 +134,53 @@ If a user wants tasks running more than ~2x daily and a script can't reduce agen
 - Suggest restructuring with a script that checks the condition first
 - If the user needs an LLM to evaluate data, suggest using an API key with direct Anthropic API calls inside the script
 - Help the user find the minimum viable frequency
+
+---
+
+## Capture Hooks
+
+When John sends a message to you, in addition to your normal reply, run these capture behaviors:
+
+### URL capture
+
+If the message contains one or more URLs:
+
+1. For each URL, try to fetch the page title via `agent-browser` (or a simple web fetch). Short titles are fine; on failure, use the URL itself.
+2. Append a block to `/workspace/vaults/Reading List.md` in this exact format:
+
+```
+- **YYYY-MM-DD** — [Page Title](URL)
+  - channel: homebot
+  - context: <any text John sent alongside the URL, up to 1 line; empty if none>
+```
+
+3. Dedupe: before appending, check if the URL already exists anywhere in `Reading List.md`. If yes, skip (no duplicate entry).
+4. Acknowledge concisely in your reply: a single line like `(saved to reading list)` — this is additional to your normal response to the message, not a replacement.
+
+### File capture
+
+If the message includes a file attachment (image, PDF, document, etc.):
+
+1. Save the file to `/workspace/vaults/To Be Filed/` with a filename of `YYYY-MM-DD_<original-name>`.
+2. If you can confidently infer a better landing location from filename or content (e.g., a board deck → `Duolingo/board/`), include a suggestion in your reply: `(saved to To Be Filed — suggest moving to <path>?)`. Do not auto-move.
+3. If you cannot infer a location, just confirm: `(saved to To Be Filed)`.
+
+### Briefing archive (only during the morning briefing task)
+
+When you complete the morning briefing, before you return, save the full briefing body to `/workspace/vaults/Briefings/YYYY-MM-DD.md` with light frontmatter:
+
+```
+---
+date: YYYY-MM-DD
+experiment_skipped: true|false
+followups_count: <N>
+---
+
+<full briefing body>
+```
+
+If the file for today already exists (re-run of the task), overwrite it — we only keep one per day.
+
+### Handling messages that are both a URL and substantive
+
+If John sends "check out X, I think we should Y <URL>", do your normal thoughtful reply AND save the URL. The save is additive; never skip the substantive response.
